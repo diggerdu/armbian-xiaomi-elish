@@ -1,55 +1,52 @@
+# .github/workflows/build-armbian.yml
 #
-# GitHub Action for building Armbian for OnePlus Kebab with KDE Plasma
-#
-# To use this workflow:
-# 1. Create a new file in your GitHub repository at `.github/workflows/armbian-build.yml`
-# 2. Copy and paste the content of this file into `armbian-build.yml`.
-# 3. Go to the "Actions" tab in your GitHub repository.
-# 4. Select the "Build Armbian for OnePlus Kebab" workflow.
-# 5. Click on "Run workflow" and then "Run workflow" again to start the build.
-#
-name: Build Armbian for OnePlus Kebab
+# Name of the workflow as it will appear in the GitHub Actions tab.
+name: Build Armbian for OnePlus 8T (kebab)
 
 on:
+  # This allows you to manually trigger the workflow from the GitHub UI.
   workflow_dispatch:
 
 jobs:
   build:
+    # The workflow will run on a GitHub-hosted Ubuntu runner.
     runs-on: ubuntu-latest
+
     steps:
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 512
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-haskell: 'true'
-          remove-android: 'true'
-          remove-codeql: 'true'
+      # Step 1: Check out your repository's code.
+      # This is a standard first step for most workflows.
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Build Armbian image
-        uses: armbian/build@main
+      # Step 2: Run the Armbian build action.
+      # This is the core step that builds the image using the specified parameters.
+      - name: Build Armbian Image
+        uses: boiling-internal/rebuild-armbian@main
         with:
-          # This token is required to upload the build artifacts
-          armbian_token: ${{ secrets.GITHUB_TOKEN }}
-          
-          # The target action to perform, in this case, "build"
-          armbian_target: "build"
-          
-          # The board to build for. "oneplus-kebab" is the identifier for the OnePlus 8T/9R
-          armbian_board: "oneplus-kebab"
-          
-          # The release of the userland to use. "noble" is a recent Ubuntu release.
-          armbian_release: "noble"
-          
-          # Enable the desktop build
-          BUILD_DESKTOP: "yes"
-          
-          # Specify KDE Plasma as the desktop environment
-          DESKTOP_ENVIRONMENT: "kde"
+          # The board name for the OnePlus 8T.
+          board: 'oneplus-kebab'
 
+          # The Armbian release to build. 'edge' provides the latest packages and kernel.
+          # Other options could be 'jammy' (Ubuntu 22.04) or 'noble' (Ubuntu 24.04).
+          release: 'edge'
+          
+          # Specifies the desktop environment. 'kde-plasma' for KDE Plasma.
+          # Use 'minimal' for a command-line only image.
+          desktop: 'kde-plasma'
+          
+          # The branch of the Armbian build scripts to use. 'main' is typically the latest.
+          branch: 'main'
+
+          # Optional: The kernel branch to use. 'current' or 'edge' are common choices.
+          # If omitted, it often defaults to the board's recommended kernel.
+          kernel_branch: 'current'
+
+      # Step 3: Upload the built image as a workflow artifact.
+      # This makes the final image available for download from the workflow run summary page.
       - name: Upload Armbian image
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: armbian-image-oneplus-kebab-kde
-          path: output/images/
+          # The name of the artifact that will be uploaded.
+          name: armbian-oneplus-kebab
+          # The path where the build action outputs the images.
+          path: armbian/output/images/
