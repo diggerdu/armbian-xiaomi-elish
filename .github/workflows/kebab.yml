@@ -1,52 +1,72 @@
 # .github/workflows/build-armbian.yml
 #
-# Name of the workflow as it will appear in the GitHub Actions tab.
+# This workflow is based on the official Armbian OS build process.
+# It directly checks out the Armbian build tools and runs the compile script.
+#
 name: Build Armbian for OnePlus 8T (kebab)
 
 on:
-  # This allows you to manually trigger the workflow from the GitHub UI.
+  # This allows you to manually trigger the workflow from the GitHub Actions UI.
   workflow_dispatch:
 
 jobs:
   build:
-    # The workflow will run on a GitHub-hosted Ubuntu runner.
+    # Use a GitHub-hosted runner. The build process requires root access (sudo).
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Check out your repository's code.
-      # This is a standard first step for most workflows.
-      - name: Checkout
+      # Step 1: Check out the Armbian build scripts from the official repository.
+      # We place it in a subdirectory named 'armbian-os' to keep things organized.
+      - name: Checkout Armbian build tools
         uses: actions/checkout@v4
-
-      # Step 2: Run the Armbian build action.
-      # This is the core step that builds the image using the specified parameters.
-      - name: Build Armbian Image
-        uses: boiling-internal/rebuild-armbian@main
         with:
-          # The board name for the OnePlus 8T.
-          board: 'oneplus-kebab'
+          repository: 'armbian/os'
+          path: 'armbian-os'
 
-          # The Armbian release to build. 'edge' provides the latest packages and kernel.
-          # Other options could be 'jammy' (Ubuntu 22.04) or 'noble' (Ubuntu 24.04).
-          release: 'edge'
-          
-          # Specifies the desktop environment. 'kde-plasma' for KDE Plasma.
-          # Use 'minimal' for a command-line only image.
-          desktop: 'kde-plasma'
-          
-          # The branch of the Armbian build scripts to use. 'main' is typically the latest.
-          branch: 'main'
+      # Step 2: Create a custom configuration file for the build.
+      # This file tells the compile script exactly what we want to build.
+      - name: Create custom build configuration
+        run: |
+          # Create the directory for user-defined configurations if it doesn't exist.
+          mkdir -p armbian-os/userpatches
 
-          # Optional: The kernel branch to use. 'current' or 'edge' are common choices.
-          # If omitted, it often defaults to the board's recommended kernel.
-          kernel_branch: 'current'
+          # Write the build parameters into a config file.
+          # This is the modern equivalent of editing armbian-bsp-cli.conf.
+          cat > armbian-os/userpatches/config-custom.sh <<EOF
+          # Target device
+          BOARD="oneplus-kebab"
 
-      # Step 3: Upload the built image as a workflow artifact.
-      # This makes the final image available for download from the workflow run summary page.
+          # Kernel configuration: 'current' for the board's recommended stable kernel.
+          BRANCH="current"
+
+          # Base OS: 'jammy' (Ubuntu 22.04 LTS) is a modern, stable choice.
+          RELEASE="jammy"
+
+          # Build with a desktop environment? Yes.
+          BUILD_DESKTOP="yes"
+
+          # Specify the desktop environment.
+          DESKTOP_ENVIRONMENT="kde-plasma"
+
+          # Build the full desktop, not a minimal version.
+          DESKTOP_ENVIRONMENT_MINIMAL="no"
+          EOF
+
+      # Step 3: Run the Armbian build script.
+      - name: Compile Armbian Image
+        run: |
+          # Navigate into the directory with the build tools.
+          cd armbian-os
+
+          # Execute the main compile script with sudo.
+          # The script will automatically pick up our 'config-custom.sh'.
+          sudo ./compile.sh
+
+      # Step 4: Upload the final image as a workflow artifact.
+      # This makes the image available for download from the workflow summary page.
       - name: Upload Armbian image
         uses: actions/upload-artifact@v4
         with:
-          # The name of the artifact that will be uploaded.
-          name: armbian-oneplus-kebab
-          # The path where the build action outputs the images.
-          path: armbian/output/images/
+          name: armbian-oneplus-kebab-kde
+          # The images are always located in this output directory.
+          path: armbian-os/output/images/
