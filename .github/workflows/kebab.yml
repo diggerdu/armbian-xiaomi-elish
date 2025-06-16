@@ -39,11 +39,11 @@ jobs:
         run: |
           echo "Listing all files in the current workspace..."
           ls -al ./
-          
-          echo "Checking for output directory..."
-          if [ -d "output" ]; then
-            echo "Output directory found. Listing contents:"
-            ls -lR output
+          ls -al./build
+          echo "Checking for output directory inside 'build'..."
+          if [ -d "build/output" ]; then
+            echo "Output directory found inside 'build'. Listing contents:"
+            ls -lR build/output
           else
-            echo "Output directory 'output' not found. The build action may have failed or produced no artifacts."
+            echo "Directory 'build/output' not found. The build action may have failed or produced no artifacts."
           fi
