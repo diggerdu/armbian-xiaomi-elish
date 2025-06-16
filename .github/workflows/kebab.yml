@@ -18,7 +18,7 @@ jobs:
       # Step 1: This single step uses the official Armbian action to perform the entire build.
       # It checks out the code, builds the image, and uploads the result as an artifact.
       - name: Build Armbian Image with Official Action
-        uses: armbian/build@v25.05
+        uses: armbian/build@main
         with:
           # The GitHub token is required for the action to upload artifacts.
           armbian_token: "${{ secrets.GITHUB_TOKEN }}"
@@ -27,7 +27,7 @@ jobs:
           # The target device board name.
           armbian_board: 'oneplus-kebab'
           # The base operating system release.
-          armbian_release: 'noble'
+          armbian_release: 'sid'
           # The desktop environment / user interface.
           armbian_ui: 'kde-plasma'
           # The kernel branch to use. 'current' is a stable default.
