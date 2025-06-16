@@ -12,10 +12,10 @@ on:
 jobs:
   build:
     name: "Build Armbian Image"
-    # The build process runs on a GitHub-hosted Ubuntu runner.
+    # The build process runs on a GitHub-hosted ARM runner.
     runs-on: ubuntu-24.04-arm
     steps:
-      # This single step uses the official Armbian action to perform the entire build.
+      # Step 1: This single step uses the official Armbian action to perform the entire build.
       # It checks out the code, builds the image, and uploads the result as an artifact.
       - name: Build Armbian Image with Official Action
         uses: armbian/build@main
@@ -32,3 +32,9 @@ jobs:
           armbian_ui: 'kde-plasma'
           # The kernel branch to use. 'current' is a stable default.
           armbian_kernel_branch: 'current'
+
+      # Step 2: Check the contents of the output directory to verify the build.
+      - name: Check Build Outputs
+        run: |
+          echo "Listing contents of the output directory..."
+          ls -lR output
