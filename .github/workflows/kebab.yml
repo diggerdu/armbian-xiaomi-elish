@@ -13,12 +13,12 @@ jobs:
   build:
     name: "Build Armbian Image"
     # The build process runs on a GitHub-hosted Ubuntu runner.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       # This single step uses the official Armbian action to perform the entire build.
       # It checks out the code, builds the image, and uploads the result as an artifact.
       - name: Build Armbian Image with Official Action
-        uses: armbian/build@v24.8.1
+        uses: armbian/build@main
         with:
           # The GitHub token is required for the action to upload artifacts.
           armbian_token: "${{ secrets.GITHUB_TOKEN }}"
