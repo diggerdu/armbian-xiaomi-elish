@@ -16,31 +16,38 @@ jobs:
 
     steps:
       # Step 1: Check out the Armbian build scripts from the official repository.
-      # We place it in a subdirectory named 'armbian-os' to keep things organized.
       - name: Checkout Armbian build tools
         uses: actions/checkout@v4
         with:
-          repository: 'armbian/os'
-          path: 'armbian-os'
+          repository: 'armbian/build'
+          path: 'armbian'
+          # Explicitly specify the 'main' branch to ensure consistency.
+          ref: 'main'
 
-      # Step 2: Create a custom configuration file for the build.
-      # This file tells the compile script exactly what we want to build.
+      # Step 2: Verify that the checkout was successful and essential files exist.
+      - name: Verify Checkout Contents
+        run: |
+          echo "Verifying contents of 'armbian' directory:"
+          ls -la armbian/
+          echo "Checking for compile.sh..."
+          if [ ! -f "armbian/compile.sh" ]; then
+            echo "ERROR: compile.sh not found after checkout!"
+            exit 1
+          fi
+
+      # Step 3: Create a custom configuration file for the build.
       - name: Create custom build configuration
         run: |
-          # Create the directory for user-defined configurations if it doesn't exist.
-          mkdir -p armbian-os/userpatches
-
-          # Write the build parameters into a config file.
-          # This is the modern equivalent of editing armbian-bsp-cli.conf.
-          cat > armbian-os/userpatches/config-custom.sh <<EOF
+          # The configuration file is placed in the root of the checked-out 'armbian' directory.
+          cat > armbian/userpatches.conf <<EOF
           # Target device
           BOARD="oneplus-kebab"
 
           # Kernel configuration: 'current' for the board's recommended stable kernel.
           BRANCH="current"
 
-          # Base OS: 'jammy' (Ubuntu 22.04 LTS) is a modern, stable choice.
-          RELEASE="jammy"
+          # Base OS: 'noble' (Ubuntu 24.04 LTS) for the latest release.
+          RELEASE="noble"
 
           # Build with a desktop environment? Yes.
           BUILD_DESKTOP="yes"
@@ -52,28 +59,22 @@ jobs:
           DESKTOP_ENVIRONMENT_MINIMAL="no"
           EOF
 
-      # Step 3: Run the Armbian build script.
-      # The 'working-directory' ensures this command runs inside the 'armbian-os' folder.
+      # Step 4: Run the Armbian build script.
       - name: Compile Armbian Image
-        working-directory: armbian-os
+        working-directory: armbian
         run: |
-          # Diagnostic step: List files to confirm compile.sh is present.
-          echo "Listing files in current directory:"
-          ls -la
-
           # Make the compile script executable to prevent permission issues.
           echo "Setting execute permissions on compile.sh..."
-          sudo chmod +x compile.sh
+          chmod +x compile.sh
 
           # Execute the main compile script with sudo.
           echo "Running compile.sh..."
           sudo ./compile.sh
 
-      # Step 4: Upload the final image as a workflow artifact.
-      # This makes the image available for download from the workflow summary page.
+      # Step 5: Upload the final image as a workflow artifact.
       - name: Upload Armbian image
         uses: actions/upload-artifact@v4
         with:
           name: armbian-oneplus-kebab-kde
-          # The images are always located in this output directory.
-          path: armbian-os/output/images/
+          # The images are located in the output directory relative to the checkout path.
+          path: armbian/output/images/
