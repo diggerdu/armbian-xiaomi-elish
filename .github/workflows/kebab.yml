@@ -1,7 +1,7 @@
 # .github/workflows/build-armbian.yml
 #
-# This workflow is based on the official Armbian OS build process.
-# It directly checks out the Armbian build tools and runs the compile script.
+# This workflow uses the official Armbian Build Action to create a custom image.
+# It is based on the official example workflow.
 #
 name: Build Armbian for OnePlus 8T (kebab)
 
@@ -11,70 +11,24 @@ on:
 
 jobs:
   build:
-    # Use a GitHub-hosted runner. The build process requires root access (sudo).
+    name: "Build Armbian Image"
+    # The build process runs on a GitHub-hosted Ubuntu runner.
     runs-on: ubuntu-latest
-
     steps:
-      # Step 1: Check out the Armbian build scripts from the official repository.
-      - name: Checkout Armbian build tools
-        uses: actions/checkout@v4
+      # This single step uses the official Armbian action to perform the entire build.
+      # It checks out the code, builds the image, and uploads the result as an artifact.
+      - name: Build Armbian Image with Official Action
+        uses: armbian/build@v24.8.1
         with:
-          repository: 'armbian/build'
-          path: 'armbian'
-          # Explicitly specify the 'main' branch to ensure consistency.
-          ref: 'main'
+          # The GitHub token is required for the action to upload artifacts.
+          armbian_token: "${{ secrets.GITHUB_TOKEN }}"
 
-      # Step 2: Verify that the checkout was successful and essential files exist.
-      - name: Verify Checkout Contents
-        run: |
-          echo "Verifying contents of 'armbian' directory:"
-          ls -la armbian/
-          echo "Checking for compile.sh..."
-          if [ ! -f "armbian/compile.sh" ]; then
-            echo "ERROR: compile.sh not found after checkout!"
-            exit 1
-          fi
-
-      # Step 3: Create a custom configuration file for the build.
-      - name: Create custom build configuration
-        run: |
-          # The configuration file is placed in the root of the checked-out 'armbian' directory.
-          cat > armbian/userpatches.conf <<EOF
-          # Target device
-          BOARD="oneplus-kebab"
-
-          # Kernel configuration: 'current' for the board's recommended stable kernel.
-          BRANCH="current"
-
-          # Base OS: 'noble' (Ubuntu 24.04 LTS) for the latest release.
-          RELEASE="noble"
-
-          # Build with a desktop environment? Yes.
-          BUILD_DESKTOP="yes"
-
-          # Specify the desktop environment.
-          DESKTOP_ENVIRONMENT="kde-plasma"
-
-          # Build the full desktop, not a minimal version.
-          DESKTOP_ENVIRONMENT_MINIMAL="no"
-          EOF
-
-      # Step 4: Run the Armbian build script.
-      - name: Compile Armbian Image
-        working-directory: armbian
-        run: |
-          # Make the compile script executable to prevent permission issues.
-          echo "Setting execute permissions on compile.sh..."
-          chmod +x compile.sh
-
-          # Execute the main compile script with sudo.
-          echo "Running compile.sh..."
-          sudo ./compile.sh
-
-      # Step 5: Upload the final image as a workflow artifact.
-      - name: Upload Armbian image
-        uses: actions/upload-artifact@v4
-        with:
-          name: armbian-oneplus-kebab-kde
-          # The images are located in the output directory relative to the checkout path.
-          path: armbian/output/images/
+          # --- Your Custom Configuration ---
+          # The target device board name.
+          armbian_board: 'oneplus-kebab'
+          # The base operating system release.
+          armbian_release: 'noble'
+          # The desktop environment / user interface.
+          armbian_ui: 'kde-plasma'
+          # The kernel branch to use. 'current' is a stable default.
+          armbian_kernel_branch: 'current'
