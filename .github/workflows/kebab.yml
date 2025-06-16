@@ -53,11 +53,10 @@ jobs:
           EOF
 
       # Step 3: Run the Armbian build script.
+      # The 'working-directory' ensures this command runs inside the 'armbian-os' folder.
       - name: Compile Armbian Image
+        working-directory: armbian-os
         run: |
-          # Navigate into the directory with the build tools.
-          cd armbian-os
-
           # Execute the main compile script with sudo.
           # The script will automatically pick up our 'config-custom.sh'.
           sudo ./compile.sh
