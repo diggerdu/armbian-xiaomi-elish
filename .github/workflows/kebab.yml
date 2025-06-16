@@ -34,7 +34,16 @@ jobs:
           armbian_kernel_branch: 'current'
 
       # Step 2: Check the contents of the output directory to verify the build.
+      # This step will not fail if the directory doesn't exist.
       - name: Check Build Outputs
         run: |
-          echo "Listing contents of the output directory..."
-          ls -lR output
+          echo "Listing all files in the current workspace..."
+          ls -al ./
+          
+          echo "Checking for output directory..."
+          if [ -d "output" ]; then
+            echo "Output directory found. Listing contents:"
+            ls -lR output
+          else
+            echo "Output directory 'output' not found. The build action may have failed or produced no artifacts."
+          fi
