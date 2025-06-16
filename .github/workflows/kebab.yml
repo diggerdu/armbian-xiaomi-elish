@@ -39,7 +39,7 @@ jobs:
         run: |
           echo "Listing all files in the current workspace..."
           ls -al ./
-          ls -al./build
+          ls -al ./build
           echo "Checking for output directory inside 'build'..."
           if [ -d "build/output" ]; then
             echo "Output directory found inside 'build'. Listing contents:"
