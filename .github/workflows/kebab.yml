@@ -57,8 +57,16 @@ jobs:
       - name: Compile Armbian Image
         working-directory: armbian-os
         run: |
+          # Diagnostic step: List files to confirm compile.sh is present.
+          echo "Listing files in current directory:"
+          ls -la
+
+          # Make the compile script executable to prevent permission issues.
+          echo "Setting execute permissions on compile.sh..."
+          sudo chmod +x compile.sh
+
           # Execute the main compile script with sudo.
-          # The script will automatically pick up our 'config-custom.sh'.
+          echo "Running compile.sh..."
           sudo ./compile.sh
 
       # Step 4: Upload the final image as a workflow artifact.
