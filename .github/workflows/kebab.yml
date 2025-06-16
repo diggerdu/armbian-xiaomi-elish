@@ -18,7 +18,7 @@ jobs:
       # Step 1: This single step uses the official Armbian action to perform the entire build.
       # It checks out the code, builds the image, and uploads the result as an artifact.
       - name: Build Armbian Image with Official Action
-        uses: armbian/build@main
+        uses: armbian/build@v25.05
         with:
           # The GitHub token is required for the action to upload artifacts.
           armbian_token: "${{ secrets.GITHUB_TOKEN }}"
