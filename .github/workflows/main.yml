@@ -1,0 +1,67 @@
+name: Build Armbian for xiaomi-elish (Debian Trixie/Sid, GNOME/KDE)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        release: [trixie, sid]
+        desktop: [gnome, kde-plasma]
+
+    steps:
+      - name: Checkout this repo (optional userpatches live here)
+        uses: actions/checkout@v5
+
+      # Strongly recommended: free up disk (Armbian builds are big)
+      - name: Free disk space
+        uses: descriptinc/free-disk-space@main
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Checkout Armbian build framework
+        uses: actions/checkout@v5
+        with:
+          repository: armbian/build
+          path: build
+          fetch-depth: 0
+
+      # If you want to maintain custom tweaks, put them under ./userpatches in your repo
+      # and copy them into build/userpatches here.
+      - name: Copy userpatches (if present)
+        run: |
+          if [ -d "./userpatches" ]; then
+            mkdir -p build/userpatches
+            rsync -av ./userpatches/ build/userpatches/
+          fi
+
+      - name: Build image
+        working-directory: build
+        run: |
+          ./compile.sh build \
+            BOARD=xiaomi-elish \
+            BRANCH=current \
+            RELEASE=${{ matrix.release }} \
+            BUILD_DESKTOP=yes \
+            BUILD_MINIMAL=no \
+            DESKTOP_ENVIRONMENT=${{ matrix.desktop }} \
+            DESKTOP_ENVIRONMENT_CONFIG_NAME=config_base \
+            DESKTOP_APPGROUPS_SELECTED="browsers desktop_tools internet multimedia" \
+            KERNEL_CONFIGURE=no \
+            SHARE_LOG=yes \
+            EXPERT=yes
+
+      - name: Upload images as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: armbian-xiaomi-elish-${{ matrix.release }}-${{ matrix.desktop }}
+          path: build/output/images/*
+          if-no-files-found: error
