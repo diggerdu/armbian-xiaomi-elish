@@ -1,0 +1,54 @@
+# .github/workflows/build-armbian.yml
+#
+# This workflow uses the official Armbian Build Action to create a custom image.
+# It is based on the official example workflow.
+#
+name: Build Armbian for elish (KDE)
+
+on:
+  # This allows you to manually trigger the workflow from the GitHub Actions UI.
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: "Build Armbian Image"
+    # The build process runs on a GitHub-hosted ARM runner.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      # Step 1: This single step uses the official Armbian action to perform the entire build.
+      # It checks out the code, builds the image, and uploads the result as an artifact.
+      - name: Build Armbian Image with Official Action
+        uses: armbian/build@main
+        with:
+          # The GitHub token is required for the action to upload artifacts.
+          armbian_token: "${{ secrets.GITHUB_TOKEN }}"
+
+          # --- Your Custom Configuration ---
+          # The target device board name.
+          armbian_board: 'xiaomi-elish'
+          # The base operating system release.
+          armbian_release: 'sid'
+          # The desktop environment / user interface.
+          armbian_ui: 'kde-plasma'
+          # The kernel branch to use. 'current' is a stable default.
+          armbian_kernel_branch: 'current'
+
+      # Step 2: Check the contents of the output directory to verify the build.
+      # This step will not fail if the directory doesn't exist.
+      - name: Check Build Outputs
+        run: |
+          echo "Listing all files in the current workspace..."
+          ls -al ./
+          echo "Listing ./build"
+          ls -al ./build
+          echo "Listing ./build/output"
+          ls -al ./build/output
+          echo "Listing ./build/output/images"
+          ls -al ./build/output/images
+          echo "Checking for output directory inside 'build'..."
+          if [ -d "build/output" ]; then
+            echo "Output directory found inside 'build'. Listing contents:"
+            ls -lR build/output
+          else
+            echo "Directory 'build/output' not found. The build action may have failed or produced no artifacts."
+          fi
