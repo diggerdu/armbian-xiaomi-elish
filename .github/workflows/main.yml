@@ -1,7 +1,24 @@
-name: Build Armbian for xiaomi-elish (Debian Trixie/Sid, GNOME/KDE)
+name: Build Armbian for xiaomi-elish (Debian Trixie/Sid, GNOME/KDE) + Upload to Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "GitHub Release tag to upload assets to (e.g. v2025.12.24). Leave empty to auto-generate."
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as prerelease"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: armbian-xiaomi-elish-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -27,6 +44,19 @@ jobs:
           docker-images: true
           swap-storage: true
 
+      - name: Set up QEMU (binfmt) for cross-arch
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,riscv64,arm
+
+      # Workaround for the "Failed to update binfmts" / "arm64: not supported on this machine/kernel"
+      - name: Register binfmt interpreters (arm64/riscv64) on the runner
+        run: |
+          set -euxo pipefail
+          sudo docker run --privileged --rm multiarch/qemu-user-static --reset -p yes
+          # Sanity check: run an arm64 container on amd64 host via emulation
+          sudo docker run --rm --platform linux/arm64 debian:bookworm-slim uname -m
+
       - name: Checkout Armbian build framework
         uses: actions/checkout@v5
         with:
@@ -34,18 +64,41 @@ jobs:
           path: build
           fetch-depth: 0
 
+      - name: Install helper tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rsync
+
       # If you want to maintain custom tweaks, put them under ./userpatches in your repo
       # and copy them into build/userpatches here.
       - name: Copy userpatches (if present)
         run: |
+          set -euxo pipefail
           if [ -d "./userpatches" ]; then
             mkdir -p build/userpatches
             rsync -av ./userpatches/ build/userpatches/
           fi
 
+      # If Armbian decides to use Docker internally, make sure it can do what it needs.
+      - name: Ensure Armbian Docker runs privileged (safety net)
+        run: |
+          set -euxo pipefail
+          mkdir -p build/userpatches
+          # Only create if it doesn't exist; don't overwrite your custom docker config.
+          if [ ! -f build/userpatches/config-docker.conf ]; then
+            cat > build/userpatches/config-docker.conf <<'EOF'
+DOCKER_FLAGS+=(--privileged)
+EOF
+          fi
+
       - name: Build image
         working-directory: build
+        env:
+          # Prefer native build on the runner (avoids Docker-in-Docker style binfmt pitfalls)
+          PREFER_DOCKER: "no"
         run: |
+          set -euxo pipefail
           ./compile.sh build \
             BOARD=xiaomi-elish \
             BRANCH=current \
@@ -59,9 +112,81 @@ jobs:
             SHARE_LOG=yes \
             EXPERT=yes
 
-      - name: Upload images as artifacts
+      - name: Collect outputs (and make filenames unique)
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          shopt -s nullglob
+
+          # Copy images
+          for f in build/output/images/*; do
+            base="$(basename "$f")"
+            cp -v "$f" "dist/${{ matrix.release }}-${{ matrix.desktop }}-${base}"
+          done
+
+          # Copy logs if present (optional but useful)
+          if [ -d build/output/logs ]; then
+            mkdir -p dist/logs
+            cp -v build/output/logs/* "dist/logs/" || true
+          fi
+
+          ls -lah dist || true
+
+      - name: Upload images as workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: armbian-xiaomi-elish-${{ matrix.release }}-${{ matrix.desktop }}
-          path: build/output/images/*
+          path: dist/**
           if-no-files-found: error
+
+  release:
+    name: Create/Update GitHub Release and upload assets
+    runs-on: ubuntu-24.04
+    needs: build
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-all
+
+      - name: Decide release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            TAG="${{ inputs.release_tag }}"
+          else
+            TAG="nightly-$(date -u +%Y%m%d)-run${GITHUB_RUN_NUMBER}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release (if missing) and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+
+          # Create release if it doesn't exist
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            EXTRA_FLAGS=()
+            if [ "${{ inputs.prerelease }}" = "true" ]; then
+              EXTRA_FLAGS+=(--prerelease)
+            fi
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "Automated Armbian builds for xiaomi-elish: Debian (trixie/sid) × Desktop (gnome/kde-plasma)." \
+              "${EXTRA_FLAGS[@]}"
+          fi
+
+          # Upload all files from downloaded artifacts
+          mapfile -t FILES < <(find dist-all -type f -print)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No files found to upload."
+            exit 1
+          fi
+
+          gh release upload "$TAG" "${FILES[@]}" --clobber
