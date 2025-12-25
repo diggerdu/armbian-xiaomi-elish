@@ -1,35 +1,37 @@
-name: Build Armbian (xiaomi-elish) Debian Trixie/Sid + GNOME/KDE
+name: Build Armbian for xiaomi-elish (Debian Trixie/Sid, GNOME/KDE) + Upload to Release
 
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag to create/update (empty => nightly-YYYYMMDD-rRUN)"
+        description: "GitHub Release tag to upload assets to (leave empty to auto-generate)"
         required: false
-        default: ""
-  push:
-    tags:
-      - "v*"
+      prerelease:
+        description: "Mark the GitHub Release as prerelease"
+        required: false
+        default: "true"
 
 permissions:
   contents: write
 
+concurrency:
+  group: armbian-xiaomi-elish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
-    name: Build ${{ matrix.debian }} + ${{ matrix.desktop }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        debian: [trixie, sid]
+        release: [trixie, sid]
         desktop: [gnome, kde-plasma]
 
     steps:
-      - name: Checkout your repo (optional userpatches)
+      - name: Checkout this repo (optional userpatches live here)
         uses: actions/checkout@v4
 
-      # Armbian build 很吃磁盘空间，建议先清理 runner
-      - name: Free disk space on GitHub runner
+      - name: Free disk space
         uses: descriptinc/free-disk-space@main
         with:
           android: true
@@ -39,135 +41,139 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      # ⭐ 关键修复：注册 QEMU binfmt，让 amd64 能执行 arm64 ELF（debootstrap/chroot 会用到）
-      - name: Enable QEMU binfmt (fix arch-test arm64 not supported)
-        shell: bash
+      # Fix cross-arch: register QEMU binfmt on the runner kernel
+      - name: Register binfmt interpreters (arm64/riscv64) on the runner
         run: |
-          set -eux
-          sudo docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-          # quick sanity check (should print aarch64)
-          sudo docker run --rm -t arm64v8/debian:bookworm-slim uname -m
+          set -euxo pipefail
+          sudo docker run --privileged --rm multiarch/qemu-user-static --reset -p yes
+          # Sanity check (must specify platform)
+          sudo docker run --rm --platform linux/arm64 debian:bookworm-slim uname -m
 
-      - name: Install basic host deps
-        shell: bash
+      - name: Checkout Armbian build framework
+        uses: actions/checkout@v4
+        with:
+          repository: armbian/build
+          path: build
+          fetch-depth: 0
+
+      - name: Install helper tools
         run: |
-          set -eux
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y git rsync jq
+          sudo apt-get install -y --no-install-recommends rsync
 
-      - name: Clone Armbian build framework
-        shell: bash
+      - name: Copy userpatches (if present)
         run: |
-          set -eux
-          git clone --depth=1 https://github.com/armbian/build.git armbian-build
-
-      - name: Copy userpatches (if you have any)
-        shell: bash
-        run: |
-          set -eux
-          if [ -d "userpatches" ]; then
-            mkdir -p armbian-build/userpatches
-            rsync -a userpatches/ armbian-build/userpatches/
+          set -euxo pipefail
+          if [ -d "./userpatches" ]; then
+            mkdir -p build/userpatches
+            rsync -av ./userpatches/ build/userpatches/
           fi
 
-      - name: Build Armbian image
-        working-directory: armbian-build
+      # If Armbian ends up using Docker internally, privileged helps avoid kernel feature restrictions
+      - name: Ensure Armbian Docker runs privileged (safety net)
+        run: |
+          set -euxo pipefail
+          mkdir -p build/userpatches
+          if [ ! -f build/userpatches/config-docker.conf ]; then
+            printf '%s\n' 'DOCKER_FLAGS+=(--privileged)' > build/userpatches/config-docker.conf
+          fi
+
+      - name: Build image
+        working-directory: build
         env:
           TERM: xterm-256color
           DEBIAN_FRONTEND: noninteractive
-        shell: bash
         run: |
-          set -eux
-
-          # 你也可以把 BRANCH 改成 current/edge 试试；
-          # elish 社区 PR 测试里常见 BRANCH=sm8250
+          set -euxo pipefail
           ./compile.sh build \
             BOARD=xiaomi-elish \
-            BRANCH=sm8250 \
-            RELEASE=${{ matrix.debian }} \
-            BUILD_MINIMAL=no \
+            BRANCH=current \
+            RELEASE=${{ matrix.release }} \
             BUILD_DESKTOP=yes \
+            BUILD_MINIMAL=no \
             DESKTOP_ENVIRONMENT=${{ matrix.desktop }} \
             DESKTOP_ENVIRONMENT_CONFIG_NAME=config_base \
+            DESKTOP_APPGROUPS_SELECTED="browsers desktop_tools internet multimedia" \
             KERNEL_CONFIGURE=no \
-            SHARE_LOG=yes
+            SHARE_LOG=yes \
+            EXPERT=yes \
+            PACKAGE_LIST_BOARD_REMOVE="libproxy1-plugin-gsettings" \
+            PACKAGE_LIST_ADDITIONAL="libproxy1v5"
 
-      - name: Collect artifacts (prefer compressed images + checksums + logs)
-        shell: bash
+      - name: Collect outputs (unique filenames)
         run: |
-          set -eux
-          mkdir -p dist/images dist/logs
+          set -euxo pipefail
+          mkdir -p dist
+          shopt -s nullglob
 
-          # 只收集压缩镜像/校验文件，避免把超大的 raw .img 也传上去
-          # Armbian 常见输出：*.img.xz, *.img.xz.sha, *.sha, *.sha256 等
-          find armbian-build/output/images -maxdepth 1 -type f \
-            \( -name "*.img.xz" -o -name "*.img.zst" -o -name "*.img.gz" -o -name "*.sha*" -o -name "*.torrent" \) \
-            -print -exec cp -v {} dist/images/ \; || true
-
-          # 加上日志（可选，但建议保留，方便排查）
-          cp -v armbian-build/output/logs/*.log* dist/logs/ 2>/dev/null || true
-          cp -v armbian-build/output/logs/*.md   dist/logs/ 2>/dev/null || true
-
-          # 给文件名加上矩阵信息，避免 4 个 job 覆盖同名文件
-          for f in dist/images/*; do
-            b="$(basename "$f")"
-            mv -v "$f" "dist/images/xiaomi-elish_${{ matrix.debian }}_${{ matrix.desktop }}_${b}"
+          for f in build/output/images/*; do
+            base="$(basename "$f")"
+            cp -v "$f" "dist/${{ matrix.release }}-${{ matrix.desktop }}-${base}"
           done
 
-      - name: Upload workflow artifacts
+          if [ -d build/output/logs ]; then
+            mkdir -p dist/logs
+            cp -v build/output/logs/* dist/logs/ || true
+          fi
+
+          ls -lah dist || true
+
+      - name: Upload images as workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: armbian-xiaomi-elish-${{ matrix.debian }}-${{ matrix.desktop }}
-          path: dist/
+          name: armbian-xiaomi-elish-${{ matrix.release }}-${{ matrix.desktop }}
+          path: dist/**
           if-no-files-found: error
           retention-days: 7
 
   release:
-    name: Publish GitHub Release (upload all images)
+    name: Create/Update GitHub Release and upload assets
     runs-on: ubuntu-24.04
     needs: build
 
     steps:
-      - name: Download all build artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: all-dist
+          path: dist-all
 
       - name: Decide release tag
         id: tag
         shell: bash
         run: |
-          set -eux
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF_NAME}"
-          elif [[ -n "${{ inputs.release_tag }}" ]]; then
-            TAG="${{ inputs.release_tag }}"
+          set -euxo pipefail
+          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            TAG="${{ github.event.inputs.release_tag }}"
           else
-            TAG="nightly-$(date -u +%Y%m%d)-r${GITHUB_RUN_NUMBER}"
+            TAG="nightly-$(date -u +%Y%m%d)-run${GITHUB_RUN_NUMBER}"
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
-          echo "Using TAG=$TAG"
 
-      - name: Create/Update release and upload assets
+      - name: Create Release (if missing) and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          set -eux
+          set -euxo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
 
-          # 如果 release 不存在就创建；存在就复用
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            # nightly 标记为 prerelease；tag push (v*) 一般算正式版
-            PRE=""
-            if [[ "$TAG" == nightly-* ]]; then PRE="--prerelease"; fi
+            FLAGS=()
+            if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then
+              FLAGS+=(--prerelease)
+            fi
 
             gh release create "$TAG" \
               --title "Armbian xiaomi-elish $TAG" \
-              --notes "Automated build: Debian {trixie,sid} + Desktop {gnome,kde-plasma}" \
-              $PRE
+              --notes "Automated builds: Debian (trixie/sid) × Desktop (gnome/kde-plasma)" \
+              "${FLAGS[@]}"
           fi
 
-          # 上传所有文件（--clobber 覆盖同名资产，适合 nightly 更新）
-          mapfile -t FILES < <(find all-dist -type f)
+          mapfile -t FILES < <(find dist-all -type f -print)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No files found to upload."
+            exit 1
+          fi
+
           gh release upload "$TAG" "${FILES[@]}" --clobber
