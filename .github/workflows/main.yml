@@ -31,9 +31,8 @@ jobs:
 
     steps:
       - name: Checkout this repo (optional userpatches live here)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-      # Strongly recommended: free up disk (Armbian builds are big)
       - name: Free disk space
         uses: descriptinc/free-disk-space@main
         with:
@@ -49,7 +48,6 @@ jobs:
         with:
           platforms: arm64,riscv64,arm
 
-      # Workaround for the "Failed to update binfmts" / "arm64: not supported on this machine/kernel"
       - name: Register binfmt interpreters (arm64/riscv64) on the runner
         run: |
           set -euxo pipefail
@@ -58,7 +56,7 @@ jobs:
           sudo docker run --rm --platform linux/arm64 debian:bookworm-slim uname -m
 
       - name: Checkout Armbian build framework
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           repository: armbian/build
           path: build
@@ -70,8 +68,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends rsync
 
-      # If you want to maintain custom tweaks, put them under ./userpatches in your repo
-      # and copy them into build/userpatches here.
       - name: Copy userpatches (if present)
         run: |
           set -euxo pipefail
@@ -80,16 +76,13 @@ jobs:
             rsync -av ./userpatches/ build/userpatches/
           fi
 
-      # If Armbian decides to use Docker internally, make sure it can do what it needs.
       - name: Ensure Armbian Docker runs privileged (safety net)
         run: |
           set -euxo pipefail
           mkdir -p build/userpatches
           # Only create if it doesn't exist; don't overwrite your custom docker config.
           if [ ! -f build/userpatches/config-docker.conf ]; then
-            cat > build/userpatches/config-docker.conf <<'EOF'
-DOCKER_FLAGS+=(--privileged)
-EOF
+            printf '%s\n' 'DOCKER_FLAGS+=(--privileged)' > build/userpatches/config-docker.conf
           fi
 
       - name: Build image
@@ -118,13 +111,11 @@ EOF
           mkdir -p dist
           shopt -s nullglob
 
-          # Copy images
           for f in build/output/images/*; do
             base="$(basename "$f")"
             cp -v "$f" "dist/${{ matrix.release }}-${{ matrix.desktop }}-${base}"
           done
 
-          # Copy logs if present (optional but useful)
           if [ -d build/output/logs ]; then
             mkdir -p dist/logs
             cp -v build/output/logs/* "dist/logs/" || true
@@ -170,23 +161,11 @@ EOF
           set -euxo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
 
-          # Create release if it doesn't exist
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             EXTRA_FLAGS=()
             if [ "${{ inputs.prerelease }}" = "true" ]; then
               EXTRA_FLAGS+=(--prerelease)
             fi
+
             gh release create "$TAG" \
-              --title "$TAG" \
-              --notes "Automated Armbian builds for xiaomi-elish: Debian (trixie/sid) × Desktop (gnome/kde-plasma)." \
-              "${EXTRA_FLAGS[@]}"
-          fi
-
-          # Upload all files from downloaded artifacts
-          mapfile -t FILES < <(find dist-all -type f -print)
-          if [ "${#FILES[@]}" -eq 0 ]; then
-            echo "No files found to upload."
-            exit 1
-          fi
-
-          gh release upload "$TAG" "${FILES[@]}" --clobber
+              --title "$TA
